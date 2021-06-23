@@ -3141,11 +3141,10 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
   struct queue_entry* q = queue;
   while (q) {
-    if (q->exec_cksum == cksum)
+    if (q->exec_cksum == cksum){
       q->n_fuzz = q->n_fuzz + 1;
-
-    /* Reset n_fuzz_reset */
-    q->n_fuzz_reset = 0;
+      q->n_fuzz_reset = q->n_fuzz_reset + 1;
+    }
 
     q = q->next;
 
@@ -3161,6 +3160,15 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
       if (crash_mode) total_crashes++;
       return 0;
     }    
+  
+    /* Reset n_fuzz_reset */
+    struct queue_entry* q = queue;
+    while (q) {
+      q->n_fuzz_reset = 0;
+      q = q->next;
+    
+    }
+
 
 #ifndef SIMPLE_FILES
 
@@ -7441,7 +7449,8 @@ EXP_ST void setup_dirs_fds(void) {
   fprintf(plot_file, "# unix_time, cycles_done, cur_path, paths_total, "
                      "pending_total, pending_favs, map_size, unique_crashes, "
                      "unique_hangs, max_depth, execs_per_sec, singletons, "
-                     "doubletons, fuzzability, tests_total\n");
+                     "doubletons, tripletons, quadrupletons, quintupletons, "
+                     "singletons_r, doubletons_r, fuzzability, tests_total\n");
                      /* ignore errors */
 
 }
