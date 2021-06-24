@@ -3471,14 +3471,14 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
     last_eps  = eps;
   }
 
-  u32 x_tons[8] = {};
-  u32 x_tons_reset[8] = {};
+  u32 x_tons[8] = {0};
+  u32 x_tons_reset[8] = {0};
   struct queue_entry* q = queue;
   while (q) {
-    if (q->n_fuzz <=8 && q->n_fuzz != 0) 
+    if (q->n_fuzz <=8 && q->n_fuzz > 0) 
        x_tons[q->n_fuzz - 1] ++;
 
-    if (q->n_fuzz_reset <=8 && q->n_fuzz_reset != 0) 
+    if (q->n_fuzz_reset <=8 && q->n_fuzz_reset > 0) 
        x_tons_reset[q->n_fuzz_reset - 1] ++;
 
     q = q->next;
@@ -3564,14 +3564,14 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
      favored_not_fuzzed, unique_crashes, unique_hangs, max_depth,
      execs_per_sec */
 
-  u32 x_tons[8] = {};
-  u32 x_tons_reset[8] = {};
+  u32 x_tons[8] = {0};
+  u32 x_tons_reset[8] = {0};
   struct queue_entry* q = queue;
   while (q) {
-    if (q->n_fuzz <= 8 && q->n_fuzz != 0) 
+    if (q->n_fuzz <= 8 && q->n_fuzz > 0) 
         x_tons[q->n_fuzz - 1] ++;
 
-    if (q->n_fuzz_reset <= 8 && q->n_fuzz_reset != 0) 
+    if (q->n_fuzz_reset <= 8 && q->n_fuzz_reset > 0) 
         x_tons_reset[q->n_fuzz_reset - 1] ++;
  
     q = q->next;
@@ -4158,11 +4158,11 @@ static void show_stats(void) {
   /* Correctness and  Path Coverage */
   if (total_inputs > 0 && queued_paths > 1) {
 
-    u32 x_tons[8] = {};
+    u32 x_tons[8] = {0};
     struct queue_entry* q = queue;
     while (q) {
 
-      if (q->n_fuzz <= 8 && q->n_fuzz != 0) 
+      if (q->n_fuzz <= 8 && q->n_fuzz > 0) 
          x_tons[q->n_fuzz - 1] ++;
 
       q = q->next;
