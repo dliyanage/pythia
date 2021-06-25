@@ -284,10 +284,6 @@ static u32 extras_cnt;                /* Total number of tokens read      */
 static struct extra_data* a_extras;   /* Automatically selected extras    */
 static u32 a_extras_cnt;              /* Total number of tokens available */
 
-
-/* Threshold residual risk and number of inputs for determining ground truth for species richness*/
-static u64 assymp_thresholds[2] = {10^(-9),500}; 
-
 static u8* (*post_handler)(u8* buf, u32* len);
 
 /* Interesting values, as per config.h */
@@ -3442,43 +3438,6 @@ static void write_abundance_file() {
 }
 #endif
 
-/* Determine ground truth achieved status for species richness */
-
-/* Number of program paths discovered during the campaign when the residual
-   risk estimation goes below intended threshold and remain below that for k 
-   number of inputs more. Return 1 if assymptote reached otherwise 0. */
- 
-static int calc_ground_truth(u32 *r_f1, u64 *n ){
-  
-  int reached = 0;
-  int prev_threshold_hit = 0;
-  int inputs_at_threshold =0;
-  long double curr_rr = (*r_f1)/(*n); /* Current residual risk estimate */
-  int len_assymptote = 0; /* Number of inputs generated at assymptote */
-  
-  if (curr_rr <= assymp_thresholds[0] && prev_threshold_hit == 0){
-     inputs_at_threshold = (*n);
-     prev_threshold_hit = 1;
-  }
-
-  if (curr_rr > assymp_thresholds[0] && prev_threshold_hit == 1){
-     /* reset variables */
-     inputs_at_threshold = 0;
-     prev_threshold_hit = 0;
-  }
- 
-  if (curr_rr <= assymp_thresholds[0] && prev_threshold_hit == 1 && inputs_at_threshold > 0){
-     len_assymptote = (*n)-inputs_at_threshold;
-  }
-
-  if (len_assymptote >= assymp_thresholds[1]){
-     reached = 1;
-  }
-
-  return reached;
-
-} 
-
 /* Update stats file for unattended monitoring. */
 
 static void write_stats_file(double bitmap_cvg, double stability, double eps) {
@@ -3525,9 +3484,6 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
     q = q->next;
   }  
 
-  /* get ground truth status */
-  int gt_status = calc_ground_truth(&(x_tons_reset[0]), &total_inputs); 
-
 
   fprintf(f, "start_time        : %llu\n"
              "last_update       : %llu\n"
@@ -3560,7 +3516,6 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              "doubletons_r      : %u\n"
              "fuzzability       : %Le\n"
              "total_inputs      : %llu\n"
-             "grnd_truth_status : %u\n"
              "execs_since_crash : %llu\n"
              "exec_timeout      : %u\n"
              "afl_banner        : %s\n"
@@ -3574,7 +3529,7 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              unique_hangs, last_path_time / 1000, last_crash_time / 1000,
              last_hang_time / 1000, x_tons[0], x_tons[1], x_tons[2],
              x_tons[3], x_tons[4], x_tons_reset[0], x_tons_reset[1],
-             fuzzability, total_inputs, gt_status, total_execs - last_crash_execs, 
+             fuzzability, total_inputs, total_execs - last_crash_execs, 
              exec_tmout, use_banner, orig_cmdline);
              /* ignore errors */
 
@@ -3709,16 +3664,14 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
 
   }
 
-  /* get ground truth status */
-  int gt_status = calc_ground_truth(&(x_tons_reset[0]), &total_inputs);
 
   fprintf(plot_file, 
-          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u, %u, %u, %u, %u, %u, %Le, %u, %llu\n",
+          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u, %u, %u, %u, %u, %u, %Le, %llu\n",
           get_cur_time() / 1000, queue_cycle - 1, current_entry, queued_paths,
           pending_not_fuzzed, pending_favored, bitmap_cvg, unique_crashes,
           unique_hangs, max_depth, eps, x_tons[0], x_tons[1], x_tons[2],
           x_tons[3], x_tons[4], x_tons_reset[0], x_tons_reset[1], fuzzability,
-          gt_status, total_inputs); /* ignore errors */
+          total_inputs); /* ignore errors */
 
   fflush(plot_file);
 }
