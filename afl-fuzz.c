@@ -145,6 +145,8 @@ EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
            virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */
 
+EXP_ST u8  edge_bits[MAP_SIZE];       /* hit counts for edges */
+
 static u8  var_bytes[MAP_SIZE];       /* Bytes that appear to be variable */
 
 static s32 shm_id;                    /* ID of the SHM region             */
@@ -895,6 +897,8 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
   u64* current = (u64*)trace_bits;
   u64* virgin  = (u64*)virgin_map;
+  u64* edge    = (u64*)edge_bits;
+  u64  prev_virgin = 255;
 
   u32  i = (MAP_SIZE >> 3);
 
@@ -902,6 +906,8 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
   u32* current = (u32*)trace_bits;
   u32* virgin  = (u32*)virgin_map;
+  u32* edge    = (u32*)edge_bits;
+  u32  prev_virgin = 255;
 
   u32  i = (MAP_SIZE >> 2);
 
@@ -926,7 +932,8 @@ static inline u8 has_new_bits(u8* virgin_map) {
            bytes in current[] are pristine in virgin[]. */
 
 #ifdef __x86_64__
-
+ 
+        printf("%s\n",(char)cur[0]);
         if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
             (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
             (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
@@ -934,6 +941,8 @@ static inline u8 has_new_bits(u8* virgin_map) {
         else ret = 1;
 
 #else
+
+
 
         if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
             (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
@@ -944,9 +953,13 @@ static inline u8 has_new_bits(u8* virgin_map) {
       }
 
       *virgin &= ~*current;
-
+      
+      /* Calculate the hit counts for edges */
+      if(*edge < 255 && prev_virgin != 255) *edge++; 
+      
     }
 
+    prev_virgin = *virgin;
     current++;
     virgin++;
 
@@ -1361,6 +1374,9 @@ EXP_ST void setup_shm(void) {
 
   memset(virgin_tmout, 255, MAP_SIZE);
   memset(virgin_crash, 255, MAP_SIZE);
+  
+  /* Initialize edge_bits with 0 */
+  memset(edge_bits, 0, MAP_SIZE);
 
   shm_id = shmget(IPC_PRIVATE, MAP_SIZE, IPC_CREAT | IPC_EXCL | 0600);
 
@@ -3150,7 +3166,6 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
   }
 
-
   if (fault == crash_mode) {
 
     /* Keep only if there are new bits in the map, add to queue for
@@ -3292,7 +3307,6 @@ keep_as_crash:
         simplify_trace((u32*)trace_bits);
 #endif /* ^__x86_64__ */
 
-        if (!has_new_bits(virgin_crash)) return keeping;
 
       }
 
@@ -3482,7 +3496,15 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
        x_tons_reset[q->n_fuzz_reset - 1] ++;
 
     q = q->next;
-  }  
+  } 
+
+  u32 x_tons_edge[8] = {0};
+  u32 i = MAP_SIZE;
+  while(i--){
+    if(edge_bits[i] <= 8 && edge_bits[i] > 0){
+       x_tons_edge[edge_bits[i] - 1] ++;
+    }
+  }
 
 
   fprintf(f, "start_time        : %llu\n"
