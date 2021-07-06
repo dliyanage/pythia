@@ -3506,10 +3506,12 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
   /* Compute x_tons based on edge coverage */
   u32 x_tons_edge[8] = {0};
   u32 i = MAP_SIZE;
+  u8 n_edges = 0;
   while(i--){
     if(edge_bits[i] <= 8 && edge_bits[i] > 0){
        x_tons_edge[edge_bits[i] - 1] ++;
     }
+    if(edge_bits[i] != 0) n_edges++;
   }
 
 
@@ -3544,6 +3546,7 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              "doubletons_r      : %u\n"
              "singletons_edge   : %u\n"
              "doubletons_edge   : %u\n"
+             "n_edges           : %u\n"
              "fuzzability       : %Le\n"
              "total_inputs      : %llu\n"
              "execs_since_crash : %llu\n"
@@ -3559,7 +3562,7 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              unique_hangs, last_path_time / 1000, last_crash_time / 1000,
              last_hang_time / 1000, x_tons[0], x_tons[1], x_tons[2],
              x_tons[3], x_tons[4], x_tons_reset[0], x_tons_reset[1],
-             x_tons_edge[0],x_tons_edge[1],
+             x_tons_edge[0],x_tons_edge[1], n_edges,
              fuzzability, total_inputs, total_execs - last_crash_execs, 
              exec_tmout, use_banner, orig_cmdline);
              /* ignore errors */
@@ -3612,10 +3615,12 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
   /* Compute x_tons based on edge coverage */
   u32 x_tons_edge[8] = {0};
   u32 i = MAP_SIZE;
+  u8 n_edges = 0;
   while(i--){
     if(edge_bits[i] <= 8 && edge_bits[i] > 0){
        x_tons_edge[edge_bits[i] - 1] ++;
     }
+    if(edge_bits[i] != 0) n_edges++;
   }
 
   /* Fuzzability */
@@ -3706,12 +3711,12 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
 
 
   fprintf(plot_file, 
-          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u, %u, %u, %u, %u, %u, %u, %u, %Le, %llu\n",
+          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %Le, %llu\n",
           get_cur_time() / 1000, queue_cycle - 1, current_entry, queued_paths,
           pending_not_fuzzed, pending_favored, bitmap_cvg, unique_crashes,
           unique_hangs, max_depth, eps, x_tons[0], x_tons[1], x_tons[2],
-          x_tons[3], x_tons[4], x_tons_reset[0], x_tons_reset[1], x_tons_edge[0], x_tons_edge[1], fuzzability,
-          total_inputs); /* ignore errors */
+          x_tons[3], x_tons[4], x_tons_reset[0], x_tons_reset[1], x_tons_edge[0], x_tons_edge[1], 
+          n_edges, fuzzability, total_inputs); /* ignore errors */
 
   fflush(plot_file);
 }
