@@ -145,6 +145,8 @@ EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
            virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */
 
+EXP_ST u8  edge_bits[MAP_SIZE];       /* hit counts for edges */
+
 static u8  var_bytes[MAP_SIZE];       /* Bytes that appear to be variable */
 
 static s32 shm_id;                    /* ID of the SHM region             */
@@ -895,6 +897,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
   u64* current = (u64*)trace_bits;
   u64* virgin  = (u64*)virgin_map;
+  u64* edge    = (u64*)edge_bits;
 
   u32  i = (MAP_SIZE >> 3);
 
@@ -902,6 +905,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
   u32* current = (u32*)trace_bits;
   u32* virgin  = (u32*)virgin_map;
+  u32* edge    = (u32*)edge_bits;
 
   u32  i = (MAP_SIZE >> 2);
 
@@ -927,6 +931,18 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
 #ifdef __x86_64__
 
+        for (u8 j = 0; j < 8; j++)
+
+#else
+
+        for (u8 j = 0; j < 4; j++)
+
+#endif
+
+        if (edge[j] < 0xff && cur[j]) edge[j]++;
+
+#ifdef __x86_64__
+
         if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
             (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
             (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
@@ -944,11 +960,12 @@ static inline u8 has_new_bits(u8* virgin_map) {
       }
 
       *virgin &= ~*current;
-
+      
     }
 
     current++;
     virgin++;
+    edge++;
 
   }
 
@@ -1361,6 +1378,9 @@ EXP_ST void setup_shm(void) {
 
   memset(virgin_tmout, 255, MAP_SIZE);
   memset(virgin_crash, 255, MAP_SIZE);
+  
+  /* Initialize edge_bits with 0 */
+  memset(edge_bits, 0, MAP_SIZE);
 
   shm_id = shmget(IPC_PRIVATE, MAP_SIZE, IPC_CREAT | IPC_EXCL | 0600);
 
@@ -3150,7 +3170,6 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
   }
 
-
   if (fault == crash_mode) {
 
     /* Keep only if there are new bits in the map, add to queue for
@@ -3482,7 +3501,16 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
        x_tons_reset[q->n_fuzz_reset - 1] ++;
 
     q = q->next;
-  }  
+  } 
+
+  /* Compute x_tons based on edge coverage */
+  u32 x_tons_edge[8] = {0};
+  u32 i = MAP_SIZE;
+  while(i--){
+    if(edge_bits[i] <= 8 && edge_bits[i] > 0){
+       x_tons_edge[edge_bits[i] - 1] ++;
+    }
+  }
 
 
   fprintf(f, "start_time        : %llu\n"
@@ -3514,6 +3542,8 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              "quitupletons      : %u\n"
              "singletons_r      : %u\n"
              "doubletons_r      : %u\n"
+             "singletons_edge   : %u\n"
+             "doubletons_edge   : %u\n"
              "fuzzability       : %Le\n"
              "total_inputs      : %llu\n"
              "execs_since_crash : %llu\n"
@@ -3529,6 +3559,7 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              unique_hangs, last_path_time / 1000, last_crash_time / 1000,
              last_hang_time / 1000, x_tons[0], x_tons[1], x_tons[2],
              x_tons[3], x_tons[4], x_tons_reset[0], x_tons_reset[1],
+             x_tons_edge[0],x_tons_edge[1],
              fuzzability, total_inputs, total_execs - last_crash_execs, 
              exec_tmout, use_banner, orig_cmdline);
              /* ignore errors */
@@ -3576,6 +3607,15 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
         x_tons_reset[q->n_fuzz_reset - 1] ++;
  
     q = q->next;
+  }
+
+  /* Compute x_tons based on edge coverage */
+  u32 x_tons_edge[8] = {0};
+  u32 i = MAP_SIZE;
+  while(i--){
+    if(edge_bits[i] <= 8 && edge_bits[i] > 0){
+       x_tons_edge[edge_bits[i] - 1] ++;
+    }
   }
 
   /* Fuzzability */
@@ -3666,11 +3706,11 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
 
 
   fprintf(plot_file, 
-          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u, %u, %u, %u, %u, %u, %Le, %llu\n",
+          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u, %u, %u, %u, %u, %u, %u, %u, %Le, %llu\n",
           get_cur_time() / 1000, queue_cycle - 1, current_entry, queued_paths,
           pending_not_fuzzed, pending_favored, bitmap_cvg, unique_crashes,
           unique_hangs, max_depth, eps, x_tons[0], x_tons[1], x_tons[2],
-          x_tons[3], x_tons[4], x_tons_reset[0], x_tons_reset[1], fuzzability,
+          x_tons[3], x_tons[4], x_tons_reset[0], x_tons_reset[1], x_tons_edge[0], x_tons_edge[1], fuzzability,
           total_inputs); /* ignore errors */
 
   fflush(plot_file);
@@ -7452,7 +7492,8 @@ EXP_ST void setup_dirs_fds(void) {
                      "pending_total, pending_favs, map_size, unique_crashes, "
                      "unique_hangs, max_depth, execs_per_sec, singletons, "
                      "doubletons, tripletons, quadrupletons, quintupletons, "
-                     "singletons_r, doubletons_r, fuzzability, grnd_truth_status, tests_total\n");
+                     "singletons_r, doubletons_r, singletons_edge, doubletons_edge, "
+                     "fuzzability, grnd_truth_status, tests_total\n");
                      /* ignore errors */
 
 }
