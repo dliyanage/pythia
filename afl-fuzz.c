@@ -951,8 +951,6 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
 #else
 
-
-
         if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
             (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
         else ret = 1;
@@ -3313,6 +3311,7 @@ keep_as_crash:
         simplify_trace((u32*)trace_bits);
 #endif /* ^__x86_64__ */
 
+        if (!has_new_bits(virgin_crash)) return keeping;
 
       }
 
