@@ -3506,12 +3506,12 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
   /* Compute x_tons based on edge coverage */
   u32 x_tons_edge[8] = {0};
   u32 i = MAP_SIZE;
-  u8 n_edges = 0;
+  u32 n_edges = 0;
   while(i--){
     if(edge_bits[i] <= 8 && edge_bits[i] > 0){
-       x_tons_edge[edge_bits[i] - 1] ++;
+      x_tons_edge[edge_bits[i] - 1]++;
     }
-    if(edge_bits[i] != 0) n_edges++;
+    if(edge_bits[i] > 0) n_edges++;
   }
 
 
@@ -3615,12 +3615,12 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
   /* Compute x_tons based on edge coverage */
   u32 x_tons_edge[8] = {0};
   u32 i = MAP_SIZE;
-  u8 n_edges = 0;
+  u32 n_edges = 0;
   while(i--){
     if(edge_bits[i] <= 8 && edge_bits[i] > 0){
        x_tons_edge[edge_bits[i] - 1] ++;
     }
-    if(edge_bits[i] != 0) n_edges++;
+    if(edge_bits[i] > 0) n_edges++;
   }
 
   /* Fuzzability */
@@ -7498,7 +7498,7 @@ EXP_ST void setup_dirs_fds(void) {
                      "unique_hangs, max_depth, execs_per_sec, singletons, "
                      "doubletons, tripletons, quadrupletons, quintupletons, "
                      "singletons_r, doubletons_r, singletons_edge, doubletons_edge, "
-                     "fuzzability, grnd_truth_status, tests_total\n");
+                     "n_edges, fuzzability, tests_total\n");
                      /* ignore errors */
 
 }
