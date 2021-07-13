@@ -8331,10 +8331,10 @@ int main(int argc, char** argv) {
 
       show_stats();
 
-      if (not_on_tty) {
+      /*if (not_on_tty) {
         ACTF("Entering queue cycle %llu.", queue_cycle);
         fflush(stdout);
-      }
+      }*/
 
       /* If we had a full queue cycle with no new finds, try
          recombination strategies next. */
