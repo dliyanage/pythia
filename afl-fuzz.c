@@ -3718,6 +3718,13 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
           x_tons[3], x_tons[4], x_tons_reset[0], x_tons_reset[1], x_tons_edge[0], x_tons_edge[1], 
           n_edges, fuzzability, total_inputs); /* ignore errors */
 
+  ACTF("%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %Le, %llu\n",
+          get_cur_time() / 1000, queue_cycle - 1, current_entry, queued_paths,
+          pending_not_fuzzed, pending_favored, bitmap_cvg, unique_crashes,
+          unique_hangs, max_depth, eps, x_tons[0], x_tons[1], x_tons[2],
+          x_tons[3], x_tons[4], x_tons_reset[0], x_tons_reset[1], x_tons_edge[0], x_tons_edge[1], 
+          n_edges, fuzzability, total_inputs);
+
   fflush(plot_file);
 }
 
@@ -4737,6 +4744,13 @@ static void show_init_stats(void) {
 
   OKF("All set and ready to roll!");
 
+  ACTF("# unix_time, cycles_done, cur_path, paths_total, "
+                     "pending_total, pending_favs, map_size, unique_crashes, "
+                     "unique_hangs, max_depth, execs_per_sec, singletons, "
+                     "doubletons, tripletons, quadrupletons, quintupletons, "
+                     "singletons_r, doubletons_r, singletons_edge, doubletons_edge, "
+                     "n_edges, fuzzability, tests_total\n");
+
 }
 
 
@@ -5284,12 +5298,6 @@ static u8 fuzz_one(char** argv) {
   }
 
 #endif /* ^IGNORE_FINDS */
-
-  if (not_on_tty) {
-    ACTF("Fuzzing test case #%u (%u total, %llu uniq crashes found)...",
-         current_entry, queued_paths, unique_crashes);
-    fflush(stdout);
-  }
 
   /* Map the test case into memory. */
 
