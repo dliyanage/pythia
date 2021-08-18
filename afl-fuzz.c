@@ -3493,6 +3493,7 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
     last_eps  = eps;
   }
 
+  /* Compute x_tons and x_tons_reset */
   u32 x_tons[8] = {0};
   u32 x_tons_reset[8] = {0};
   struct queue_entry* q = queue;
@@ -3553,6 +3554,9 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              "quitupletons      : %u\n"
              "singletons_r      : %u\n"
              "doubletons_r      : %u\n"
+             "tripletons_r      : %u\n"
+             "quadrupletons_r   : %u\n"
+             "quitupletons_r    : %u\n"
              "singletons_edge   : %u\n"
              "doubletons_edge   : %u\n"
              "tripletons_edge   : %u\n"
@@ -3578,8 +3582,9 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              max_depth, current_entry, pending_favored, pending_not_fuzzed,
              queued_variable, stability, bitmap_cvg, unique_crashes,
              unique_hangs, last_path_time / 1000, last_crash_time / 1000,
-             last_hang_time / 1000, x_tons[0], x_tons[1], x_tons[2],
-             x_tons[3], x_tons[4], x_tons_reset[0], x_tons_reset[1],
+             last_hang_time / 1000, 
+             x_tons[0], x_tons[1], x_tons[2], x_tons[3], x_tons[4], 
+             x_tons_reset[0], x_tons_reset[1], x_tons_reset[2], x_tons_reset[3], x_tons_reset[4], 
              x_tons_edge[0],x_tons_edge[1], x_tons_edge[2],x_tons_edge[3], x_tons_edge[4],
              x_tons_path[0],x_tons_path[1], x_tons_path[2],x_tons_path[3], x_tons_path[4],
              n_edges, n_paths, fuzzability, total_inputs, total_execs - last_crash_execs, 
@@ -3618,6 +3623,7 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
      favored_not_fuzzed, unique_crashes, unique_hangs, max_depth,
      execs_per_sec */
 
+  /* Compute x_tons and x_tons_reset */
   u32 x_tons[8] = {0};
   u32 x_tons_reset[8] = {0};
   struct queue_entry* q = queue;
@@ -3631,7 +3637,7 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
     q = q->next;
   }
 
-  /* Compute x_tons based on edge coverage */
+  /* Compute x_tons_edge and x_tons_path based on edge coverage */
   u32 x_tons_edge[8] = {0};
   u32 x_tons_path[8] = {0};
   u32 i = MAP_SIZE;
@@ -3736,11 +3742,12 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
 
 
   fprintf(plot_file, 
-          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u,%u, %u, %Le, %llu\n",
+          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u,%u, %u, %Le, %llu\n",
           get_cur_time() / 1000, queue_cycle - 1, current_entry, queued_paths,
           pending_not_fuzzed, pending_favored, bitmap_cvg, unique_crashes,
-          unique_hangs, max_depth, eps, x_tons[0], x_tons[1], x_tons[2],
-          x_tons[3], x_tons[4], x_tons_reset[0], x_tons_reset[1], 
+          unique_hangs, max_depth, eps, 
+          x_tons[0], x_tons[1], x_tons[2], x_tons[3], x_tons[4], 
+          x_tons_reset[0], x_tons_reset[1], x_tons_reset[2], x_tons_reset[3], x_tons_reset[4],
           x_tons_edge[0], x_tons_edge[1], x_tons_edge[2],  x_tons_edge[3], x_tons_edge[4],
           x_tons_path[0], x_tons_path[1], x_tons_path[2],  x_tons_path[3], x_tons_path[4],
           n_edges, n_paths, fuzzability, total_inputs); /* ignore errors */
@@ -4222,18 +4229,18 @@ static void show_stats(void) {
 
   if (not_on_tty) return;
   
-  /* Keep track of singletons and doubletons */
-  u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
-
+  /* Compute x_tons and x_tons_reset */
+  u32 x_tons[8] = {0};
+  u32 x_tons_reset[8] = {0};
   struct queue_entry* q = queue;
   while (q) {
-    if (q->exec_cksum == cksum){
-      q->n_fuzz = q->n_fuzz + 1;
-      q->n_fuzz_reset = q->n_fuzz_reset + 1;
-    }
+    if (q->n_fuzz <= 8 && q->n_fuzz > 0) 
+        x_tons[q->n_fuzz - 1] ++;
 
+    if (q->n_fuzz_reset <= 8 && q->n_fuzz_reset > 0) 
+        x_tons_reset[q->n_fuzz_reset - 1] ++;
+ 
     q = q->next;
-
   }
 
   /* Compute some mildly useful bitmap stats. */
@@ -4245,17 +4252,6 @@ static void show_stats(void) {
 
   /* Correctness and  Path Coverage */
   if (total_inputs > 0 && queued_paths > 1) {
-
-    u32 x_tons[8] = {0};
-    struct queue_entry* q = queue;
-    while (q) {
-
-      if (q->n_fuzz <= 8 && q->n_fuzz > 0) 
-         x_tons[q->n_fuzz - 1] ++;
-
-      q = q->next;
-
-    }
 
     if (x_tons[1] > 0)
       exp_total_paths += x_tons[0] * x_tons[0] / (2 * x_tons[1]);
@@ -7538,7 +7534,7 @@ EXP_ST void setup_dirs_fds(void) {
                      "pending_total, pending_favs, map_size, unique_crashes, "
                      "unique_hangs, max_depth, execs_per_sec, singletons, "
                      "doubletons, tripletons, quadrupletons, quintupletons, "
-                     "singletons_r, doubletons_r, "
+                     "singletons_r, doubletons_r, tripletons_r, quadrupletons_r, quitupletons_r,"
                      "singletons_edge, doubletons_edge, tripletons_edge, quadrupletons_edge, quitupletons_edge,"
                      "singletons_path, doubletons_path, tripletons_path, quadrupletons_path, quitupletons_path,"
                      "n_edges, n_paths, fuzzability, tests_total\n");
@@ -8444,4 +8440,5 @@ stop_fuzzing:
 }
 
 #endif /* !AFL_LIB */
+
 
