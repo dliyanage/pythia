@@ -8440,5 +8440,3 @@ stop_fuzzing:
 }
 
 #endif /* !AFL_LIB */
-
-
