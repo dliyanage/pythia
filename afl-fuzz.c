@@ -4231,15 +4231,10 @@ static void show_stats(void) {
   
   /* Compute x_tons and x_tons_reset */
   u32 x_tons[8] = {0};
-  u32 x_tons_reset[8] = {0};
   struct queue_entry* q = queue;
   while (q) {
     if (q->n_fuzz <= 8 && q->n_fuzz > 0) 
         x_tons[q->n_fuzz - 1] ++;
-
-    if (q->n_fuzz_reset <= 8 && q->n_fuzz_reset > 0) 
-        x_tons_reset[q->n_fuzz_reset - 1] ++;
- 
     q = q->next;
   }
 
