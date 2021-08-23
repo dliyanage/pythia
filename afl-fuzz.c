@@ -3174,8 +3174,6 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   /* Update path_bits */
   path_bits[cksum % MAP_SIZE] ++;
   
-  /* ACTF("The code is %d = ", dumb_mode); */
-
   if (fault == crash_mode) {
 
     /* Keep only if there are new bits in the map, add to queue for
