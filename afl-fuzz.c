@@ -3167,11 +3167,15 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
       q->n_fuzz = q->n_fuzz + 1;
       q->n_fuzz_reset = q->n_fuzz_reset + 1;
     }
-    path_bits[cksum % MAP_SIZE] ++;
-
     q = q->next;
 
   }
+  
+  /* Update path_bits */
+  path_bits[cksum % MAP_SIZE] ++;
+  
+  /* Return in dumb mode */
+  return 0;
 
   if (fault == crash_mode) {
 
