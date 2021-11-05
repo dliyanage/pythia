@@ -3527,8 +3527,8 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
 
 #else
 
-  u32* path    = (u64*)path_bits;
-  u32* edge    = (u64*)edge_bits;
+  u32* path    = (u32*)path_bits;
+  u32* edge    = (u32*)edge_bits;
 
   u32  i = (MAP_SIZE >> 2);
 
