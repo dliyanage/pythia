@@ -937,25 +937,25 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
         if (edg[j] < 0xff && cur[j]) edg[j]++;
 
-#ifdef __x86_64__
+//#ifdef __x86_64__
 
-        if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
-            (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
-            (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
-            (cur[6] && vir[6] == 0xff) || (cur[7] && vir[7] == 0xff)) ret = 2;
-        else ret = 1;
+        //if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+        //    (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
+        //    (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
+        //    (cur[6] && vir[6] == 0xff) || (cur[7] && vir[7] == 0xff)) ret = 2;
+        //else ret = 1;
 
-#else
+//#else
 
-        if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
-            (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
-        else ret = 1;
+        //if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+        //    (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
+        //else ret = 1;
 
-#endif /* ^__x86_64__ */
-
+//#endif /* ^__x86_64__ */
+        ret = 2;
       }
 
-      *virgin &= ~*current;
+      //*virgin &= ~*current;
       
     }
 
@@ -3154,6 +3154,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   u8* trace_mini = ck_alloc(MAP_SIZE >> 3);
   minimize_bits(trace_mini, trace_bits);
   u32 cksum_mini = hash32(trace_mini, MAP_SIZE >> 3, HASH_CONST);
+  ck_free(trace_mini);
 
   has_new_bits(virgin_bits);
 
