@@ -255,9 +255,7 @@ struct queue_entry {
 
   u64 exec_us,                        /* Execution time (us)              */
       handicap,                       /* Number of queue cycles behind    */
-      depth,                          /* Path depth                       */
-      n_fuzz,                         /* Number of fuzz, does not overflow */
-      n_fuzz_reset;                   /* Number of reset fuzz             */
+      depth;                          /* Path depth                       */
 
   u8* trace_mini;                     /* Trace bytes, if kept             */
   u32 tc_ref;                         /* Trace bytes ref count            */
@@ -796,8 +794,6 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
   q->len          = len;
   q->depth        = cur_depth + 1;
   q->passed_det   = passed_det;
-  q->n_fuzz       = 1;
-  q->n_fuzz_reset = 1;
 
   if (q->depth > max_depth) max_depth = q->depth;
 
@@ -1381,8 +1377,6 @@ EXP_ST void setup_shm(void) {
   memset(virgin_tmout, 255, MAP_SIZE);
   memset(virgin_crash, 255, MAP_SIZE);
   memset(path_bits, 0, MAP_SIZE);
-  
-  /* Initialize edge_bits with 0 */
   memset(edge_bits, 0, MAP_SIZE);
 
   shm_id = shmget(IPC_PRIVATE, MAP_SIZE, IPC_CREAT | IPC_EXCL | 0600);
@@ -3159,21 +3153,16 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   u8  keeping = 0, res;
   
   /* Keep track of singletons and doubletons */
-  u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
-
-  struct queue_entry* q = queue;
-  while (q) {
-    if (q->exec_cksum == cksum){
-      q->n_fuzz = q->n_fuzz + 1;
-      q->n_fuzz_reset = q->n_fuzz_reset + 1;
-    }
-    q = q->next;
-
-  }
+  u8* trace_mini = ck_alloc(MAP_SIZE >> 3);
+  minimize_bits(trace_mini, trace_bits);
+  u32 cksum_mini = hash32(trace_mini, MAP_SIZE >> 3, HASH_CONST);
   
-  /* Update path_bits */
-  path_bits[cksum % MAP_SIZE] ++;
-  
+  /* Saturated path increment */
+  if (path_bits[cksum_mini % MAP_SIZE] < 0xFF) path_bits[cksum_mini % MAP_SIZE] ++;
+
+  /* Simulating blackbox mode. So, return. */
+  return 0;
+   
   if (fault == crash_mode) {
 
     /* Keep only if there are new bits in the map, add to queue for
@@ -3182,19 +3171,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
     if (!(hnb = has_new_bits(virgin_bits))) {
       if (crash_mode) total_crashes++;
       return 0;
-    }    
-  
-    /* Reset n_fuzz_reset */
-    struct queue_entry* q = queue;
-    while (q) {
-      q->n_fuzz_reset = 0;
-      q = q->next;
-    
     }
-    
-    /* Return in dumb mode */
-    return 0;
-
 
 #ifndef SIMPLE_FILES
 
@@ -3434,36 +3411,6 @@ static void find_timeout(void) {
 
 }
 
-#ifdef WRITE_ABUNDANCE
-/* Update abundance file for unattended monitoring. */
-
-static void write_abundance_file() {
-
-  u8* fn = alloc_printf("%s/abundance_stats", out_dir);
-  s32 fd;
-  FILE* f;
-
-  fd = open(fn, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-
-  if (fd < 0) PFATAL("Unable to create '%s'", fn);
-
-  ck_free(fn);
-
-  f = fdopen(fd, "w");
-
-  if (!f) PFATAL("fdopen() failed");
-
-  struct queue_entry* q = queue;
-  while (q) {
-    fprintf(f, "%llu\n", q->n_fuzz);
-    q = q->next;
-  }
-
-  fclose(f);
-
-}
-#endif
-
 /* Update stats file for unattended monitoring. */
 
 static void write_stats_file(double bitmap_cvg, double stability, double eps) {
@@ -3497,37 +3444,6 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
     last_eps  = eps;
   }
 
-  /* Compute x_tons and x_tons_reset */
-  u32 x_tons[8] = {0};
-  u32 x_tons_reset[8] = {0};
-  struct queue_entry* q = queue;
-  while (q) {
-    if (q->n_fuzz <=8 && q->n_fuzz > 0) 
-       x_tons[q->n_fuzz - 1] ++;
-
-    if (q->n_fuzz_reset <=8 && q->n_fuzz_reset > 0) 
-       x_tons_reset[q->n_fuzz_reset - 1] ++;
-
-    q = q->next;
-  } 
-
-  /* Compute x_tons based on edge coverage */
-  u32 x_tons_edge[8] = {0};
-  u32 x_tons_path[8] = {0};
-  u32 i = MAP_SIZE;
-  u32 n_edges = 0;
-  u32 n_paths = 0;
-  while (i--){
-    if (edge_bits[i]) {
-      if(edge_bits[i] <= 8) x_tons_edge[edge_bits[i] - 1]++;
-      n_edges++;
-    }
-    if (path_bits[i]) {
-      if(path_bits[i] <= 8) x_tons_path[path_bits[i] - 1]++;
-      n_paths++;
-    }
-  }
-
 
   fprintf(f, "start_time        : %llu\n"
              "last_update       : %llu\n"
@@ -3551,29 +3467,6 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              "last_path         : %llu\n"
              "last_crash        : %llu\n"
              "last_hang         : %llu\n"
-             "singletons        : %u\n"
-             "doubletons        : %u\n"
-             "tripletons        : %u\n"
-             "quadrupletons     : %u\n"
-             "quitupletons      : %u\n"
-             "singletons_r      : %u\n"
-             "doubletons_r      : %u\n"
-             "tripletons_r      : %u\n"
-             "quadrupletons_r   : %u\n"
-             "quitupletons_r    : %u\n"
-             "singletons_edge   : %u\n"
-             "doubletons_edge   : %u\n"
-             "tripletons_edge   : %u\n"
-             "quadrupletons_edge: %u\n"
-             "quitupletons_edge : %u\n"
-             "singletons_path   : %u\n"
-             "doubletons_path   : %u\n"
-             "tripletons_path   : %u\n"
-             "quadrupletons_path: %u\n"
-             "quitupletons_path : %u\n"
-             "n_edges           : %u\n"
-             "n_paths           : %u\n"
-             "fuzzability       : %Le\n"
              "total_inputs      : %llu\n"
              "execs_since_crash : %llu\n"
              "exec_timeout      : %u\n"
@@ -3586,12 +3479,7 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              max_depth, current_entry, pending_favored, pending_not_fuzzed,
              queued_variable, stability, bitmap_cvg, unique_crashes,
              unique_hangs, last_path_time / 1000, last_crash_time / 1000,
-             last_hang_time / 1000, 
-             x_tons[0], x_tons[1], x_tons[2], x_tons[3], x_tons[4], 
-             x_tons_reset[0], x_tons_reset[1], x_tons_reset[2], x_tons_reset[3], x_tons_reset[4], 
-             x_tons_edge[0],x_tons_edge[1], x_tons_edge[2],x_tons_edge[3], x_tons_edge[4],
-             x_tons_path[0],x_tons_path[1], x_tons_path[2],x_tons_path[3], x_tons_path[4],
-             n_edges, n_paths, fuzzability, total_inputs, total_execs - last_crash_execs, 
+             last_hang_time / 1000, total_inputs, total_execs - last_crash_execs, 
              exec_tmout, use_banner, orig_cmdline);
              /* ignore errors */
 
@@ -3627,134 +3515,69 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
      favored_not_fuzzed, unique_crashes, unique_hangs, max_depth,
      execs_per_sec */
 
-  /* Compute x_tons and x_tons_reset */
-  u32 x_tons[8] = {0};
-  u32 x_tons_reset[8] = {0};
-  struct queue_entry* q = queue;
-  while (q) {
-    if (q->n_fuzz <= 8 && q->n_fuzz > 0) 
-        x_tons[q->n_fuzz - 1] ++;
-
-    if (q->n_fuzz_reset <= 8 && q->n_fuzz_reset > 0) 
-        x_tons_reset[q->n_fuzz_reset - 1] ++;
- 
-    q = q->next;
-  }
-
   /* Compute x_tons_edge and x_tons_path based on edge coverage */
-  u32 x_tons_edge[8] = {0};
-  u32 x_tons_path[8] = {0};
-  u32 i = MAP_SIZE;
-  u32 n_edges = 0;
-  u32 n_paths = 0;
-  while (i--){
-    if (edge_bits[i]) {
-      if(edge_bits[i] <= 8) x_tons_edge[edge_bits[i] - 1]++;
-      n_edges++;
-    }
-    if (path_bits[i]) {
-      if(path_bits[i] <= 8) x_tons_path[path_bits[i] - 1]++;
-      n_paths++;
-    }
-  }
+  u32 x_tons_edge[3] = {0};
+  u32 x_tons_path[3] = {0};
 
-  /* Fuzzability */
-  fuzzability_counter ++;
-  if (fuzzability_counter >= fuzzability_increment && total_inputs > 0 && queued_paths > 1) {
+  #ifdef __x86_64__
 
-    fuzzability = 0.0;
-    fuzzability_counter = 0;
-    if (fuzzability_increment < 30) fuzzability_increment *= 2;
-    else fuzzability_increment = 30; /* Compute about every 3 mins */
+  u64* path    = (u64*)path_bits;
+  u64* edge    = (u64*)edge_bits;
 
-    u64 X_i;
-    long double first_sum;
-    long double first_sum_i;
-    long double first_sum_j;
+  u32  i = (MAP_SIZE >> 3);
 
-    long double first_sum_k = 1/(long double)(2 * total_inputs);
-    if (first_sum_k < 0.0 || first_sum_k > 1.0) first_sum_k = 0.0;
-    
-    long double first_sum_pre = log(total_inputs)  + first_sum_k;
+#else
 
-    u64 accounted_for = 0;
-    struct queue_entry* q = queue;
+  u32* path    = (u64*)path_bits;
+  u32* edge    = (u64*)edge_bits;
 
-    while (q) {
+  u32  i = (MAP_SIZE >> 2);
 
-      X_i = q->n_fuzz;
+#endif /* ^__x86_64__ */
 
-      if (X_i > 1)  {
-        first_sum_i = 1.0 / (long double)(12 * (X_i - 1) * (X_i - 1));
-        if (first_sum_i < 0.0 || first_sum_i > 1.0) first_sum_i = 0.0;
+  while (i--) {
 
-        first_sum_j = 1/ (long double) (2 * X_i - 2);
-        if (first_sum_j < 0.0 || first_sum_j > 1.0) first_sum_j = 0.0;
-
-        first_sum = first_sum_pre - log(X_i - 1) - first_sum_j + first_sum_i;
-      } else
-        first_sum = first_sum_pre + 0.577215664901532860606512090;
-
-      fuzzability += first_sum * X_i / (long double) total_inputs;
-
-      accounted_for += X_i;
-
-      q = q->next;
-
-    }
-
-    if (total_inputs - accounted_for > 0) {
-
-      X_i = total_inputs - accounted_for;
-
-      if (X_i > 1)  {
-        first_sum_i = 1.0 / (long double)(12 * (X_i - 1) * (X_i - 1));
-        if (first_sum_i < 0.0 || first_sum_i > 1.0) first_sum_i = 0.0;
-
-        first_sum_j = 1/ (long double) (2 * X_i - 2);
-        if (first_sum_j < 0.0 || first_sum_j > 1.0) first_sum_j = 0.0;
-
-        first_sum = first_sum_pre - log(X_i - 1) - first_sum_j + first_sum_i;
-      } else
-        first_sum = first_sum_pre + 0.577215664901532860606512090;
-
-      fuzzability += first_sum * X_i / (long double) total_inputs;
-
-    }
-
-    long double A;
-    if (x_tons[1] > 0)      A = 2.0 * x_tons[1] / (long double) ((total_inputs - 1) * x_tons[0] + 2 * x_tons[1]);
-    else if (x_tons[0] > 0) A = 2.0 / (long double) ((total_inputs - 1) * (x_tons[0] - 1) + 2);
-    else                     A = 1.0;
-
-    if (A >= 0.0 && A <= 1.0) {
-
-      long double second_sum = 0.0;
-      long double second_sum_i;
-      u64 r;
-      for (r = 1; r < total_inputs; r++){
-        second_sum_i = pow(1.0 - A, r) / (long double) r;
-        if (second_sum_i > 0.0 && second_sum_i <= 1.0)
-          second_sum += second_sum_i;
+    if (unlikely(*edge)) {
+      u8* edg = (u8*)edge;
+#ifdef __x86_64__
+      for (u8 j = 0; j < 8; j++) {
+#else
+      for (u8 j = 0; j < 4; j++) {
+#endif
+        if (edg[j]) {
+          if(edg[j] <= 3) x_tons_edge[edg[j] - 1]++;
+          n_edges++;
+        }
       }
-
-      fuzzability += (x_tons[0] / (long double) pow(1.0 - A, total_inputs)) * (-log(A) - second_sum) / (long double) total_inputs;
-
     }
 
-  }
+    if (unlikely(*path)) {
+      u8* pat = (u8*)path;
+#ifdef __x86_64__
+      for (u8 j = 0; j < 8; j++) {
+#else
+      for (u8 j = 0; j < 4; j++) {
+#endif
+        if (pat[j]) {
+          if(pat[j] <= 3) x_tons_path[pat[j] - 1]++;
+          n_paths++;
+        }
+      }
+    }
 
+    edge++;
+    path++;
+
+  }
 
   fprintf(plot_file, 
-          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u,%u, %u, %Le, %llu\n",
+          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u, %u, %u, %u, %u, %u, %u, %llu\n",
           get_cur_time() / 1000, queue_cycle - 1, current_entry, queued_paths,
           pending_not_fuzzed, pending_favored, bitmap_cvg, unique_crashes,
           unique_hangs, max_depth, eps, 
-          x_tons[0], x_tons[1], x_tons[2], x_tons[3], x_tons[4], 
-          x_tons_reset[0], x_tons_reset[1], x_tons_reset[2], x_tons_reset[3], x_tons_reset[4],
-          x_tons_edge[0], x_tons_edge[1], x_tons_edge[2],  x_tons_edge[3], x_tons_edge[4],
-          x_tons_path[0], x_tons_path[1], x_tons_path[2],  x_tons_path[3], x_tons_path[4],
-          n_edges, n_paths, fuzzability, total_inputs); /* ignore errors */
+          x_tons_edge[0], x_tons_edge[1], x_tons_edge[2],
+          x_tons_path[0], x_tons_path[1], x_tons_path[2],
+          n_edges, n_paths, total_inputs); /* ignore errors */
 
   fflush(plot_file);
 }
@@ -4205,9 +4028,6 @@ static void show_stats(void) {
 
     last_stats_ms = cur_ms;
     write_stats_file(t_byte_ratio, stab_ratio, avg_exec);
-#ifdef WRITE_ABUNDANCE
-    write_abundance_file();
-#endif
     save_auto();
     write_bitmap();
 
@@ -4232,15 +4052,6 @@ static void show_stats(void) {
   /* If we're not on TTY, bail out. */
 
   if (not_on_tty) return;
-  
-  /* Compute x_tons and x_tons_reset */
-  u32 x_tons[8] = {0};
-  struct queue_entry* q = queue;
-  while (q) {
-    if (q->n_fuzz <= 8 && q->n_fuzz > 0) 
-        x_tons[q->n_fuzz - 1] ++;
-    q = q->next;
-  }
 
   /* Compute some mildly useful bitmap stats. */
 
@@ -4248,18 +4059,6 @@ static void show_stats(void) {
 
   long double correctness = 1.0;
   u32 exp_total_paths = queued_paths;
-
-  /* Correctness and  Path Coverage */
-  if (total_inputs > 0 && queued_paths > 1) {
-
-    if (x_tons[1] > 0)
-      exp_total_paths += x_tons[0] * x_tons[0] / (2 * x_tons[1]);
-    else
-      exp_total_paths += x_tons[0] * (x_tons[0] - 1) / 2;
-
-    correctness = (long double) x_tons[0] / total_inputs;
-
-  }
 
 
   /* Now, for the visuals... */
@@ -7068,9 +6867,6 @@ static void sync_fuzzers(char** argv) {
         u8 saved = save_if_interesting(argv, mem, st.st_size, fault);
         queued_imported += saved;
         syncing_party = 0;
-
-        /* Predictions won't work for imports */
-        if (saved) queue_top->n_fuzz = 3;
 
         munmap(mem, st.st_size);
 
