@@ -913,7 +913,8 @@ static inline u8 has_new_bits(u8* virgin_map) {
        that have not been already cleared from the virgin map - since this will
        almost always be the case. */
 
-    if (unlikely(*current) && unlikely(*current & *virgin)) {
+    // In blackbox mode, we'll always count
+    if (unlikely(*current) /*&& unlikely(*current & *virgin)*/) {
 
       if (likely(ret < 2)) {
 
@@ -3153,7 +3154,9 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   u8* trace_mini = ck_alloc(MAP_SIZE >> 3);
   minimize_bits(trace_mini, trace_bits);
   u32 cksum_mini = hash32(trace_mini, MAP_SIZE >> 3, HASH_CONST);
-  
+
+  has_new_bits(virgin_bits);
+
   /* Saturated path increment */
   if (path_bits[cksum_mini % MAP_SIZE] < 0xFF) path_bits[cksum_mini % MAP_SIZE] ++;
 
