@@ -193,9 +193,6 @@ EXP_ST u64 total_crashes,             /* Total number of crashes          */
            blocks_eff_select,         /* Blocks selected as fuzzable      */
            total_inputs;              /* Total inputs generated           */
 
-static long double fuzzability;
-static u32 fuzzability_increment = 1;
-static u32 fuzzability_counter = 0;
 
 static u32 subseq_tmouts;             /* Number of timeouts in a row      */
 
@@ -3518,6 +3515,8 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
   /* Compute x_tons_edge and x_tons_path based on edge coverage */
   u32 x_tons_edge[3] = {0};
   u32 x_tons_path[3] = {0};
+  u32 n_paths = 0;
+  u32 n_edges = 0;
 
   #ifdef __x86_64__
 
@@ -4200,19 +4199,11 @@ static void show_stats(void) {
   SAYF(bSTG bV bSTOP "   uniq hangs : " cRST "%-6s " bSTG bV "\n",
        tmp);
 
-  sprintf(tmp, "%Le", fuzzability);
+  sprintf(tmp, "%Le", 0.0);
   SAYF(bV bSTOP "     fuzzability : " cRST "%-34s ",
          tmp);
-  
-  double effective_paths = exp(fuzzability);
-  if (effective_paths < 10)
-    sprintf(tmp, "%5.3f", exp(fuzzability));
-  else if (effective_paths < 100)
-    sprintf(tmp, "%5.2f", exp(fuzzability));
-  else if (effective_paths < 1000)
-    sprintf(tmp, "%5.1f", exp(fuzzability));
-  else  
-    sprintf(tmp, "%s", DI(exp(fuzzability)));
+ 
+  sprintf(tmp, "%5.3f", 10); 
 
   SAYF(bSTG bV bSTOP "  effec paths : " cRST "%-5s  " bSTG bV "\n",
        tmp);
@@ -7327,12 +7318,10 @@ EXP_ST void setup_dirs_fds(void) {
 
   fprintf(plot_file, "# unix_time, cycles_done, cur_path, paths_total, "
                      "pending_total, pending_favs, map_size, unique_crashes, "
-                     "unique_hangs, max_depth, execs_per_sec, singletons, "
-                     "doubletons, tripletons, quadrupletons, quintupletons, "
-                     "singletons_r, doubletons_r, tripletons_r, quadrupletons_r, quitupletons_r,"
-                     "singletons_edge, doubletons_edge, tripletons_edge, quadrupletons_edge, quitupletons_edge,"
-                     "singletons_path, doubletons_path, tripletons_path, quadrupletons_path, quitupletons_path,"
-                     "n_edges, n_paths, fuzzability, tests_total\n");
+                     "unique_hangs, max_depth, execs_per_sec, "
+                     "singleton_edges, doubleton_edges, tripleton_edges"
+                     "singleton_paths, doubleton_paths, tripleton_paths,"
+                     "n_edges, n_paths, tests_total\n");
                      /* ignore errors */
 
 }
