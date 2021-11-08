@@ -952,7 +952,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
         //else ret = 1;
 
 //#endif /* ^__x86_64__ */
-        ret = 2;
+
       }
 
       //*virgin &= ~*current;
