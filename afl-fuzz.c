@@ -145,6 +145,9 @@ EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
            virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */
 
+EXP_ST u8  edge_bits[MAP_SIZE];       /* hit counts for edges */
+EXP_ST u8  path_bits[MAP_SIZE];       /* Hit counts for edges in dumb mode*/
+
 static u8  var_bytes[MAP_SIZE];       /* Bytes that appear to be variable */
 
 static s32 shm_id;                    /* ID of the SHM region             */
@@ -190,9 +193,6 @@ EXP_ST u64 total_crashes,             /* Total number of crashes          */
            blocks_eff_select,         /* Blocks selected as fuzzable      */
            total_inputs;              /* Total inputs generated           */
 
-static long double fuzzability;
-static u32 fuzzability_increment = 1;
-static u32 fuzzability_counter = 0;
 
 static u32 subseq_tmouts;             /* Number of timeouts in a row      */
 
@@ -252,8 +252,7 @@ struct queue_entry {
 
   u64 exec_us,                        /* Execution time (us)              */
       handicap,                       /* Number of queue cycles behind    */
-      depth,                          /* Path depth                       */
-      n_fuzz;                         /* Number of fuzz, does not overflow */
+      depth;                          /* Path depth                       */
 
   u8* trace_mini;                     /* Trace bytes, if kept             */
   u32 tc_ref;                         /* Trace bytes ref count            */
@@ -792,7 +791,6 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
   q->len          = len;
   q->depth        = cur_depth + 1;
   q->passed_det   = passed_det;
-  q->n_fuzz       = 1;
 
   if (q->depth > max_depth) max_depth = q->depth;
 
@@ -893,6 +891,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
   u64* current = (u64*)trace_bits;
   u64* virgin  = (u64*)virgin_map;
+  u64* edge    = (u64*)edge_bits;
 
   u32  i = (MAP_SIZE >> 3);
 
@@ -900,6 +899,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
   u32* current = (u32*)trace_bits;
   u32* virgin  = (u32*)virgin_map;
+  u32* edge    = (u32*)edge_bits;
 
   u32  i = (MAP_SIZE >> 2);
 
@@ -913,40 +913,55 @@ static inline u8 has_new_bits(u8* virgin_map) {
        that have not been already cleared from the virgin map - since this will
        almost always be the case. */
 
-    if (unlikely(*current) && unlikely(*current & *virgin)) {
+    // In blackbox mode, we'll always count
+    if (unlikely(*current) /*&& unlikely(*current & *virgin)*/) {
 
       if (likely(ret < 2)) {
 
         u8* cur = (u8*)current;
         u8* vir = (u8*)virgin;
+        u8* edg = (u8*)edge;
 
         /* Looks like we have not found any new bytes yet; see if any non-zero
            bytes in current[] are pristine in virgin[]. */
 
 #ifdef __x86_64__
 
-        if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
-            (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
-            (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
-            (cur[6] && vir[6] == 0xff) || (cur[7] && vir[7] == 0xff)) ret = 2;
-        else ret = 1;
+        for (u8 j = 0; j < 8; j++)
 
 #else
 
-        if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
-            (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
-        else ret = 1;
+        for (u8 j = 0; j < 4; j++)
 
-#endif /* ^__x86_64__ */
+#endif
+
+        if (edg[j] < 0xff && cur[j]) edg[j]++;
+
+//#ifdef __x86_64__
+
+        //if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+        //    (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
+        //    (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
+        //    (cur[6] && vir[6] == 0xff) || (cur[7] && vir[7] == 0xff)) ret = 2;
+        //else ret = 1;
+
+//#else
+
+        //if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+        //    (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
+        //else ret = 1;
+
+//#endif /* ^__x86_64__ */
 
       }
 
-      *virgin &= ~*current;
-
+      //*virgin &= ~*current;
+      
     }
 
     current++;
     virgin++;
+    edge++;
 
   }
 
@@ -1359,6 +1374,8 @@ EXP_ST void setup_shm(void) {
 
   memset(virgin_tmout, 255, MAP_SIZE);
   memset(virgin_crash, 255, MAP_SIZE);
+  memset(path_bits, 0, MAP_SIZE);
+  memset(edge_bits, 0, MAP_SIZE);
 
   shm_id = shmget(IPC_PRIVATE, MAP_SIZE, IPC_CREAT | IPC_EXCL | 0600);
 
@@ -3132,21 +3149,21 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   u8  hnb;
   s32 fd;
   u8  keeping = 0, res;
-
-
+  
   /* Keep track of singletons and doubletons */
-  u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+  u8* trace_mini = ck_alloc(MAP_SIZE >> 3);
+  minimize_bits(trace_mini, trace_bits);
+  u32 cksum_mini = hash32(trace_mini, MAP_SIZE >> 3, HASH_CONST);
+  ck_free(trace_mini);
 
-  struct queue_entry* q = queue;
-  while (q) {
-    if (q->exec_cksum == cksum)
-      q->n_fuzz = q->n_fuzz + 1;
+  has_new_bits(virgin_bits);
 
-    q = q->next;
+  /* Saturated path increment */
+  if (path_bits[cksum_mini % MAP_SIZE] < 0xFF) path_bits[cksum_mini % MAP_SIZE] ++;
 
-  }
-
-
+  /* Simulating blackbox mode. So, return. */
+  return 0;
+   
   if (fault == crash_mode) {
 
     /* Keep only if there are new bits in the map, add to queue for
@@ -3155,7 +3172,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
     if (!(hnb = has_new_bits(virgin_bits))) {
       if (crash_mode) total_crashes++;
       return 0;
-    }    
+    }
 
 #ifndef SIMPLE_FILES
 
@@ -3395,36 +3412,6 @@ static void find_timeout(void) {
 
 }
 
-#ifdef WRITE_ABUNDANCE
-/* Update abundance file for unattended monitoring. */
-
-static void write_abundance_file() {
-
-  u8* fn = alloc_printf("%s/abundance_stats", out_dir);
-  s32 fd;
-  FILE* f;
-
-  fd = open(fn, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-
-  if (fd < 0) PFATAL("Unable to create '%s'", fn);
-
-  ck_free(fn);
-
-  f = fdopen(fd, "w");
-
-  if (!f) PFATAL("fdopen() failed");
-
-  struct queue_entry* q = queue;
-  while (q) {
-    fprintf(f, "%llu\n", q->n_fuzz);
-    q = q->next;
-  }
-
-  fclose(f);
-
-}
-#endif
-
 /* Update stats file for unattended monitoring. */
 
 static void write_stats_file(double bitmap_cvg, double stability, double eps) {
@@ -3458,14 +3445,6 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
     last_eps  = eps;
   }
 
-  u32 singletons = 0;
-  u32 doubletons = 0;
-  struct queue_entry* q = queue;
-  while (q) {
-    if (q->n_fuzz == 1) singletons ++;
-    if (q->n_fuzz == 2) doubletons ++;
-    q = q->next;
-  }
 
   fprintf(f, "start_time        : %llu\n"
              "last_update       : %llu\n"
@@ -3489,9 +3468,6 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              "last_path         : %llu\n"
              "last_crash        : %llu\n"
              "last_hang         : %llu\n"
-             "singletons        : %u\n"
-             "doubletons        : %u\n"
-             "fuzzability       : %Le\n"
              "total_inputs      : %llu\n"
              "execs_since_crash : %llu\n"
              "exec_timeout      : %u\n"
@@ -3504,9 +3480,8 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              max_depth, current_entry, pending_favored, pending_not_fuzzed,
              queued_variable, stability, bitmap_cvg, unique_crashes,
              unique_hangs, last_path_time / 1000, last_crash_time / 1000,
-             last_hang_time / 1000, singletons, doubletons, fuzzability,
-             total_inputs, total_execs - last_crash_execs, exec_tmout,
-             use_banner, orig_cmdline);
+             last_hang_time / 1000, total_inputs, total_execs - last_crash_execs, 
+             exec_tmout, use_banner, orig_cmdline);
              /* ignore errors */
 
   fclose(f);
@@ -3541,107 +3516,71 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
      favored_not_fuzzed, unique_crashes, unique_hangs, max_depth,
      execs_per_sec */
 
-  u32 singletons = 0;
-  u32 doubletons = 0;
-  struct queue_entry* q = queue;
-  while (q) {
-    if (q->n_fuzz == 1) singletons ++;
-    if (q->n_fuzz == 2) doubletons ++;
-    q = q->next;
-  }
+  /* Compute x_tons_edge and x_tons_path based on edge coverage */
+  u32 x_tons_edge[3] = {0};
+  u32 x_tons_path[3] = {0};
+  u32 n_paths = 0;
+  u32 n_edges = 0;
 
-  /* Fuzzability */
-  fuzzability_counter ++;
-  if (fuzzability_counter >= fuzzability_increment && total_inputs > 0 && queued_paths > 1) {
+  #ifdef __x86_64__
 
-    fuzzability = 0.0;
-    fuzzability_counter = 0;
-    if (fuzzability_increment < 30) fuzzability_increment *= 2;
-    else fuzzability_increment = 30; /* Compute about every 3 mins */
+  u64* path    = (u64*)path_bits;
+  u64* edge    = (u64*)edge_bits;
 
-    u64 X_i;
-    long double first_sum;
-    long double first_sum_i;
-    long double first_sum_j;
+  u32  i = (MAP_SIZE >> 3);
 
-    long double first_sum_k = 1/(long double)(2 * total_inputs);
-    if (first_sum_k < 0.0 || first_sum_k > 1.0) first_sum_k = 0.0;
-    
-    long double first_sum_pre = log(total_inputs)  + first_sum_k;
+#else
 
-    u64 accounted_for = 0;
-    struct queue_entry* q = queue;
+  u32* path    = (u32*)path_bits;
+  u32* edge    = (u32*)edge_bits;
 
-    while (q) {
+  u32  i = (MAP_SIZE >> 2);
 
-      X_i = q->n_fuzz;
+#endif /* ^__x86_64__ */
 
-      if (X_i > 1)  {
-        first_sum_i = 1.0 / (long double)(12 * (X_i - 1) * (X_i - 1));
-        if (first_sum_i < 0.0 || first_sum_i > 1.0) first_sum_i = 0.0;
+  while (i--) {
 
-        first_sum_j = 1/ (long double) (2 * X_i - 2);
-        if (first_sum_j < 0.0 || first_sum_j > 1.0) first_sum_j = 0.0;
-
-        first_sum = first_sum_pre - log(X_i - 1) - first_sum_j + first_sum_i;
-      } else
-        first_sum = first_sum_pre + 0.577215664901532860606512090;
-
-      fuzzability += first_sum * X_i / (long double) total_inputs;
-
-      accounted_for += X_i;
-
-      q = q->next;
-
-    }
-
-    if (total_inputs - accounted_for > 0) {
-
-      X_i = total_inputs - accounted_for;
-
-      if (X_i > 1)  {
-        first_sum_i = 1.0 / (long double)(12 * (X_i - 1) * (X_i - 1));
-        if (first_sum_i < 0.0 || first_sum_i > 1.0) first_sum_i = 0.0;
-
-        first_sum_j = 1/ (long double) (2 * X_i - 2);
-        if (first_sum_j < 0.0 || first_sum_j > 1.0) first_sum_j = 0.0;
-
-        first_sum = first_sum_pre - log(X_i - 1) - first_sum_j + first_sum_i;
-      } else
-        first_sum = first_sum_pre + 0.577215664901532860606512090;
-
-      fuzzability += first_sum * X_i / (long double) total_inputs;
-
-    }
-
-    long double A;
-    if (doubletons > 0)      A = 2.0 * doubletons / (long double) ((total_inputs - 1) * singletons + 2 * doubletons);
-    else if (singletons > 0) A = 2.0 / (long double) ((total_inputs - 1) * (singletons - 1) + 2);
-    else                     A = 1.0;
-
-    if (A >= 0.0 && A <= 1.0) {
-
-      long double second_sum = 0.0;
-      long double second_sum_i;
-      u64 r;
-      for (r = 1; r < total_inputs; r++){
-        second_sum_i = pow(1.0 - A, r) / (long double) r;
-        if (second_sum_i > 0.0 && second_sum_i <= 1.0)
-          second_sum += second_sum_i;
+    if (unlikely(*edge)) {
+      u8* edg = (u8*)edge;
+#ifdef __x86_64__
+      for (u8 j = 0; j < 8; j++) {
+#else
+      for (u8 j = 0; j < 4; j++) {
+#endif
+        if (edg[j]) {
+          if(edg[j] <= 3) x_tons_edge[edg[j] - 1]++;
+          n_edges++;
+        }
       }
-
-      fuzzability += (singletons / (long double) pow(1.0 - A, total_inputs)) * (-log(A) - second_sum) / (long double) total_inputs;
-
     }
+
+    if (unlikely(*path)) {
+      u8* pat = (u8*)path;
+#ifdef __x86_64__
+      for (u8 j = 0; j < 8; j++) {
+#else
+      for (u8 j = 0; j < 4; j++) {
+#endif
+        if (pat[j]) {
+          if(pat[j] <= 3) x_tons_path[pat[j] - 1]++;
+          n_paths++;
+        }
+      }
+    }
+
+    edge++;
+    path++;
 
   }
 
   fprintf(plot_file, 
-          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u, %Le, %llu\n",
+          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u, %u, %u, %u, %u, %u, %u, %llu\n",
           get_cur_time() / 1000, queue_cycle - 1, current_entry, queued_paths,
           pending_not_fuzzed, pending_favored, bitmap_cvg, unique_crashes,
-          unique_hangs, max_depth, eps, singletons, doubletons, fuzzability,
-          total_inputs); /* ignore errors */
+          unique_hangs, max_depth, eps, 
+          x_tons_edge[0], x_tons_edge[1], x_tons_edge[2],
+          x_tons_path[0], x_tons_path[1], x_tons_path[2],
+          n_edges, n_paths, total_inputs); /* ignore errors */
 
   fflush(plot_file);
 }
@@ -4092,9 +4031,6 @@ static void show_stats(void) {
 
     last_stats_ms = cur_ms;
     write_stats_file(t_byte_ratio, stab_ratio, avg_exec);
-#ifdef WRITE_ABUNDANCE
-    write_abundance_file();
-#endif
     save_auto();
     write_bitmap();
 
@@ -4125,31 +4061,7 @@ static void show_stats(void) {
   t_bits = (MAP_SIZE << 3) - count_bits(virgin_bits);
 
   long double correctness = 1.0;
-  u32 singletons = 0;
-  u32 doubletons = 0;
   u32 exp_total_paths = queued_paths;
-
-  /* Correctness and  Path Coverage */
-  if (total_inputs > 0 && queued_paths > 1) {
-
-    struct queue_entry* q = queue;
-    while (q) {
-
-      if (q->n_fuzz == 1) singletons ++;
-      if (q->n_fuzz == 2) doubletons ++;
-
-      q = q->next;
-
-    }
-
-    if (doubletons > 0)
-      exp_total_paths += singletons * singletons / (2 * doubletons);
-    else
-      exp_total_paths += singletons * (singletons - 1) / 2;
-
-    correctness = (long double) singletons / total_inputs;
-
-  }
 
 
   /* Now, for the visuals... */
@@ -4291,19 +4203,11 @@ static void show_stats(void) {
   SAYF(bSTG bV bSTOP "   uniq hangs : " cRST "%-6s " bSTG bV "\n",
        tmp);
 
-  sprintf(tmp, "%Le", fuzzability);
+  sprintf(tmp, "%Le", 0.0);
   SAYF(bV bSTOP "     fuzzability : " cRST "%-34s ",
          tmp);
-  
-  double effective_paths = exp(fuzzability);
-  if (effective_paths < 10)
-    sprintf(tmp, "%5.3f", exp(fuzzability));
-  else if (effective_paths < 100)
-    sprintf(tmp, "%5.2f", exp(fuzzability));
-  else if (effective_paths < 1000)
-    sprintf(tmp, "%5.1f", exp(fuzzability));
-  else  
-    sprintf(tmp, "%s", DI(exp(fuzzability)));
+ 
+  sprintf(tmp, "%5.3f", 10); 
 
   SAYF(bSTG bV bSTOP "  effec paths : " cRST "%-5s  " bSTG bV "\n",
        tmp);
@@ -6959,9 +6863,6 @@ static void sync_fuzzers(char** argv) {
         queued_imported += saved;
         syncing_party = 0;
 
-        /* Predictions won't work for imports */
-        if (saved) queue_top->n_fuzz = 3;
-
         munmap(mem, st.st_size);
 
         if (!(stage_cur++ % stats_update_freq)) show_stats();
@@ -7421,8 +7322,10 @@ EXP_ST void setup_dirs_fds(void) {
 
   fprintf(plot_file, "# unix_time, cycles_done, cur_path, paths_total, "
                      "pending_total, pending_favs, map_size, unique_crashes, "
-                     "unique_hangs, max_depth, execs_per_sec, singletons, "
-                     "doubletons, fuzzability, tests_total\n");
+                     "unique_hangs, max_depth, execs_per_sec, "
+                     "singleton_edges, doubleton_edges, tripleton_edges,"
+                     "singleton_paths, doubleton_paths, tripleton_paths,"
+                     "n_edges, n_paths, tests_total\n");
                      /* ignore errors */
 
 }
