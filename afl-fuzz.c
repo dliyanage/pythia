@@ -913,50 +913,45 @@ static inline u8 has_new_bits(u8* virgin_map) {
        that have not been already cleared from the virgin map - since this will
        almost always be the case. */
 
-    // In blackbox mode, we'll always count
-    if (unlikely(*current) /*&& unlikely(*current & *virgin)*/) {
+    if (unlikely(*current)) {
+      u8* edg = (u8*)edge;
+      u8* cur = (u8*)current;
 
-      if (likely(ret < 2)) {
-
-        u8* cur = (u8*)current;
-        u8* vir = (u8*)virgin;
-        u8* edg = (u8*)edge;
-
-        /* Looks like we have not found any new bytes yet; see if any non-zero
-           bytes in current[] are pristine in virgin[]. */
-
+      /* Keep track of edge hit counts */
 #ifdef __x86_64__
-
-        for (u8 j = 0; j < 8; j++)
-
+      for (u8 j = 0; j < 8; j++) 
 #else
-
-        for (u8 j = 0; j < 4; j++)
-
-#endif
-
+      for (u8 j = 0; j < 4; j++) 
+#endif 
         if (edg[j] < 0xff && cur[j]) edg[j]++;
 
-//#ifdef __x86_64__
+      if (unlikely(*current & *virgin)) {
 
-        //if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
-        //    (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
-        //    (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
-        //    (cur[6] && vir[6] == 0xff) || (cur[7] && vir[7] == 0xff)) ret = 2;
-        //else ret = 1;
+        if (likely(ret < 2)) {
 
-//#else
+          u8* vir = (u8*)virgin;
 
-        //if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
-        //    (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
-        //else ret = 1;
+          /* Looks like we have not found any new bytes yet; see if any non-zero
+             bytes in current[] are pristine in virgin[]. */
+#ifdef __x86_64__
+          if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+              (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
+              (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
+              (cur[6] && vir[6] == 0xff) || (cur[7] && vir[7] == 0xff)) ret = 2;
+          else ret = 1;
+#else
+          if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+              (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
+          else ret = 1;
 
-//#endif /* ^__x86_64__ */
+#endif /* ^__x86_64__ */
+
+        }
+
+        *virgin &= ~*current;
 
       }
 
-      //*virgin &= ~*current;
-      
     }
 
     current++;
@@ -3149,21 +3144,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   u8  hnb;
   s32 fd;
   u8  keeping = 0, res;
-  
-  /* Keep track of singletons and doubletons */
-  u8* trace_mini = ck_alloc(MAP_SIZE >> 3);
-  minimize_bits(trace_mini, trace_bits);
-  u32 cksum_mini = hash32(trace_mini, MAP_SIZE >> 3, HASH_CONST);
-  ck_free(trace_mini);
-
-  has_new_bits(virgin_bits);
-
-  /* Saturated path increment */
-  if (path_bits[cksum_mini % MAP_SIZE] < 0xFF) path_bits[cksum_mini % MAP_SIZE] ++;
-
-  /* Simulating blackbox mode. So, return. */
-  return 0;
-   
+     
   if (fault == crash_mode) {
 
     /* Keep only if there are new bits in the map, add to queue for
@@ -3173,6 +3154,10 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
       if (crash_mode) total_crashes++;
       return 0;
     }
+     
+    /* Keep track of path hit counts */
+    u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+    if (path_bits[cksum % MAP_SIZE] < 0xFF) path_bits[cksum % MAP_SIZE] ++;
 
 #ifndef SIMPLE_FILES
 
@@ -3185,29 +3170,10 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
 #endif /* ^!SIMPLE_FILES */
 
-    add_to_queue(fn, len, 0);
-
-    if (hnb == 2) {
-      queue_top->has_new_cov = 1;
-      queued_with_cov++;
-    }
-
-    queue_top->exec_cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
-
-    /* Try to calibrate inline; this also calls update_bitmap_score() when
-       successful. */
-
-    res = calibrate_case(argv, queue_top, mem, queue_cycle - 1, 0);
-
-    if (res == FAULT_ERROR)
-      FATAL("Unable to execute target application");
-
     fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
     if (fd < 0) PFATAL("Unable to create '%s'", fn);
     ck_write(fd, mem, len, fn);
     close(fd);
-
-    keeping = 1;
 
   }
 
