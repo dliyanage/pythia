@@ -920,45 +920,43 @@ static inline u8 has_new_bits(u8* virgin_map) {
       u8* cur = (u8*)current;
 
 #ifdef __x86_64__
-    for (u8 j = 0; j < 8; j++) 
+      for (u8 j = 0; j < 8; j++) 
 #else
-    for (u8 j = 0; j < 4; j++) 
+      for (u8 j = 0; j < 4; j++) 
 #endif 
-      if (edg[j] < 0xff && cur[j]) edg[j]++;
+        if (edg[j] < 0xff && cur[j]) edg[j]++;
 
-    if (unlikely(*current & *virgin)) {
+          if (*current & *virgin) {
 
-      if (likely(ret < 2)) {
+            if (likely(ret < 2)) {
 
-        u8* vir = (u8*)virgin;
+              u8* vir = (u8*)virgin;
 
-        /* Looks like we have not found any new bytes yet; see if any non-zero
-           bytes in current[] are pristine in virgin[]. */
+              /* Looks like we have not found any new bytes yet; see if any non-zero
+              bytes in current[] are pristine in virgin[]. */
 #ifdef __x86_64__
-        if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
-            (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
-            (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
-            (cur[6] && vir[6] == 0xff) || (cur[7] && vir[7] == 0xff)) ret = 2;
-        else ret = 1;
+              if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+                (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
+                (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
+                (cur[6] && vir[6] == 0xff) || (cur[7] && vir[7] == 0xff)) ret = 2;
+              else ret = 1;
 #else
-        if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
-            (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
-        else ret = 1;
+              if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+                (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
+              else ret = 1;
 
 #endif /* ^__x86_64__ */
 
+          }
+
+          *virgin &= ~*current;
+
+        }
       }
 
-      *virgin &= ~*current;
-
-    }
-
-  }
-
-  current++;
-  virgin++;
-  edge++;
- 
+    current++;
+    virgin++;
+    edge++;
 
   }
 
@@ -3161,6 +3159,11 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   }
 
   if (fault == crash_mode) {
+  
+    /* Keep track of path hit counts for marked paths */
+    u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+    if ((unlikely(path_bits[cksum % MAP_SIZE]) && path_bits[cksum % MAP_SIZE]) < 0xFF)
+      path_bits[cksum % MAP_SIZE] ++; 
 
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
@@ -3170,8 +3173,8 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
       return 0;
     } 
     
-    u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);	
-    if (path_bits[cksum % MAP_SIZE] < 0xFF) path_bits[cksum % MAP_SIZE] ++;   
+    /* Mark path as one to keep track of */
+    if (!path_bits[cksum % MAP_SIZE]) path_bits[cksum % MAP_SIZE] = 1;
 
 #ifndef SIMPLE_FILES
 
