@@ -920,12 +920,13 @@ static inline u8 has_new_bits(u8* virgin_map) {
       u8* cur = (u8*)current;
 
       /* Keep track of edge hit counts */
+      if (stage_name[0] != 'c')
 #ifdef __x86_64__
-      for (u8 j = 0; j < 8; j++) 
+        for (u8 j = 0; j < 8; j++) 
 #else
-      for (u8 j = 0; j < 4; j++) 
+        for (u8 j = 0; j < 4; j++) 
 #endif 
-        if (edg[j] < 0xff && cur[j]) edg[j]++;
+          if (edg[j] < 0xff && cur[j]) edg[j]++;
 
       if (unlikely(*current & *virgin)) {
 
