@@ -157,6 +157,7 @@ static volatile u8 stop_soon,         /* Ctrl-C pressed?                  */
                    child_timed_out;   /* Traced process timed out?        */
 
 EXP_ST u32 queued_paths,              /* Total number of queued testcases */
+           found_paths,
            queued_variable,           /* Testcases with variable behavior */
            queued_at_start,           /* Total number of initial inputs   */
            queued_discovered,         /* Items discovered during this run */
@@ -802,6 +803,7 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
   } else q_prev100 = queue = queue_top = q;
 
   queued_paths++;
+  found_paths++;
   pending_not_fuzzed++;
 
   cycles_wo_finds = 0;
@@ -913,50 +915,46 @@ static inline u8 has_new_bits(u8* virgin_map) {
        that have not been already cleared from the virgin map - since this will
        almost always be the case. */
 
-    // In blackbox mode, we'll always count
-    if (unlikely(*current) /*&& unlikely(*current & *virgin)*/) {
+    if (unlikely(*current)) {
+      u8* edg = (u8*)edge;
+      u8* cur = (u8*)current;
 
-      if (likely(ret < 2)) {
-
-        u8* cur = (u8*)current;
-        u8* vir = (u8*)virgin;
-        u8* edg = (u8*)edge;
-
-        /* Looks like we have not found any new bytes yet; see if any non-zero
-           bytes in current[] are pristine in virgin[]. */
-
+      /* Keep track of edge hit counts */
+      if (stage_name[0] != 'c')
 #ifdef __x86_64__
-
-        for (u8 j = 0; j < 8; j++)
-
+        for (u8 j = 0; j < 8; j++) 
 #else
+        for (u8 j = 0; j < 4; j++) 
+#endif 
+          if (edg[j] < 0xff && cur[j]) edg[j]++;
 
-        for (u8 j = 0; j < 4; j++)
+      if (unlikely(*current & *virgin)) {
 
-#endif
+        if (likely(ret < 2)) {
 
-        if (edg[j] < 0xff && cur[j]) edg[j]++;
+          u8* vir = (u8*)virgin;
 
-//#ifdef __x86_64__
+          /* Looks like we have not found any new bytes yet; see if any non-zero
+             bytes in current[] are pristine in virgin[]. */
+#ifdef __x86_64__
+          if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+              (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
+              (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
+              (cur[6] && vir[6] == 0xff) || (cur[7] && vir[7] == 0xff)) ret = 2;
+          else ret = 1;
+#else
+          if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+              (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
+          else ret = 1;
 
-        //if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
-        //    (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
-        //    (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
-        //    (cur[6] && vir[6] == 0xff) || (cur[7] && vir[7] == 0xff)) ret = 2;
-        //else ret = 1;
+#endif /* ^__x86_64__ */
 
-//#else
+        }
 
-        //if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
-        //    (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
-        //else ret = 1;
-
-//#endif /* ^__x86_64__ */
+        *virgin &= ~*current;
 
       }
 
-      //*virgin &= ~*current;
-      
     }
 
     current++;
@@ -3149,22 +3147,13 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   u8  hnb;
   s32 fd;
   u8  keeping = 0, res;
-  
-  /* Keep track of singletons and doubletons */
-  u8* trace_mini = ck_alloc(MAP_SIZE >> 3);
-  minimize_bits(trace_mini, trace_bits);
-  u32 cksum_mini = hash32(trace_mini, MAP_SIZE >> 3, HASH_CONST);
-  ck_free(trace_mini);
-
-  has_new_bits(virgin_bits);
-
-  /* Saturated path increment */
-  if (path_bits[cksum_mini % MAP_SIZE] < 0xFF) path_bits[cksum_mini % MAP_SIZE] ++;
-
-  /* Simulating blackbox mode. So, return. */
-  return 0;
-   
+     
   if (fault == crash_mode) {
+     
+    /* Keep track of path hit counts */
+    u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+    if (unlikely(path_bits[cksum % MAP_SIZE]) && path_bits[cksum % MAP_SIZE] < 0xFF)
+      path_bits[cksum % MAP_SIZE] ++;
 
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
@@ -3173,41 +3162,26 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
       if (crash_mode) total_crashes++;
       return 0;
     }
+     
+    /* Mark as path to keep track of */
+    if (!path_bits[cksum % MAP_SIZE]) path_bits[cksum % MAP_SIZE] = 1;
+    found_paths++;
 
 #ifndef SIMPLE_FILES
 
-    fn = alloc_printf("%s/queue/id:%06u,%s", out_dir, queued_paths,
+    fn = alloc_printf("%s/queue/id:%06u,%s", out_dir, found_paths,
                       describe_op(hnb));
 
 #else
 
-    fn = alloc_printf("%s/queue/id_%06u", out_dir, queued_paths);
+    fn = alloc_printf("%s/queue/id_%06u", out_dir, found_paths);
 
 #endif /* ^!SIMPLE_FILES */
-
-    add_to_queue(fn, len, 0);
-
-    if (hnb == 2) {
-      queue_top->has_new_cov = 1;
-      queued_with_cov++;
-    }
-
-    queue_top->exec_cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
-
-    /* Try to calibrate inline; this also calls update_bitmap_score() when
-       successful. */
-
-    res = calibrate_case(argv, queue_top, mem, queue_cycle - 1, 0);
-
-    if (res == FAULT_ERROR)
-      FATAL("Unable to execute target application");
 
     fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
     if (fd < 0) PFATAL("Unable to create '%s'", fn);
     ck_write(fd, mem, len, fn);
     close(fd);
-
-    keeping = 1;
 
   }
 
@@ -3476,7 +3450,7 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              "command_line      : %s\n",
              start_time / 1000, get_cur_time() / 1000, getpid(),
              queue_cycle ? (queue_cycle - 1) : 0, total_execs, eps,
-             queued_paths, queued_favored, queued_discovered, queued_imported,
+             found_paths, queued_favored, queued_discovered, queued_imported,
              max_depth, current_entry, pending_favored, pending_not_fuzzed,
              queued_variable, stability, bitmap_cvg, unique_crashes,
              unique_hangs, last_path_time / 1000, last_crash_time / 1000,
@@ -3575,7 +3549,7 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
 
   fprintf(plot_file, 
           "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u, %u, %u, %u, %u, %u, %u, %llu\n",
-          get_cur_time() / 1000, queue_cycle - 1, current_entry, queued_paths,
+          get_cur_time() / 1000, queue_cycle - 1, current_entry, found_paths,
           pending_not_fuzzed, pending_favored, bitmap_cvg, unique_crashes,
           unique_hangs, max_depth, eps, 
           x_tons_edge[0], x_tons_edge[1], x_tons_edge[2],
@@ -4166,7 +4140,7 @@ static void show_stats(void) {
   }
 
   SAYF(bSTG bV bSTOP "current paths : " cRST "%-5s  " bSTG bV "\n",
-       DI(queued_paths));
+       DI(found_paths));
 
 
   /* Highlight crashes in red if found, denote going over the KEEP_UNIQUE_CRASH
@@ -5117,7 +5091,7 @@ static u8 fuzz_one(char** argv) {
 
   if (not_on_tty) {
     ACTF("Fuzzing test case #%u (%u total, %llu uniq crashes found)...",
-         current_entry, queued_paths, unique_crashes);
+         current_entry, found_paths, unique_crashes);
     fflush(stdout);
   }
 
