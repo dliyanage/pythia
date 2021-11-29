@@ -926,33 +926,34 @@ static inline u8 has_new_bits(u8* virgin_map) {
 #endif 
         if (edg[j] < 0xff && cur[j]) edg[j]++;
 
-          if (*current & *virgin) {
+      if (*current & *virgin) {
 
-            if (likely(ret < 2)) {
+        if (likely(ret < 2)) {
 
-              u8* vir = (u8*)virgin;
+          u8* vir = (u8*)virgin;
 
-              /* Looks like we have not found any new bytes yet; see if any non-zero
-              bytes in current[] are pristine in virgin[]. */
+          /* Looks like we have not found any new bytes yet; see if any non-zero
+             bytes in current[] are pristine in virgin[]. */
 #ifdef __x86_64__
-              if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
-                (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
-                (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
-                (cur[6] && vir[6] == 0xff) || (cur[7] && vir[7] == 0xff)) ret = 2;
-              else ret = 1;
+          if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+              (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
+              (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
+              (cur[6] && vir[6] == 0xff) || (cur[7] && vir[7] == 0xff)) ret = 2;
+          else ret = 1;
 #else
-              if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
-                (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
-              else ret = 1;
+          if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+              (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
+          else ret = 1;
 
 #endif /* ^__x86_64__ */
 
-          }
-
-          *virgin &= ~*current;
-
         }
+
+        *virgin &= ~*current;
+
       }
+
+    }
 
     current++;
     virgin++;
@@ -3592,22 +3593,21 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
   while (i--) {	
     if (unlikely(*edge)) {	
       u8* edg = (u8*)edge;
-	
-#ifdef __x86_64__
-	
-      for (u8 j = 0; j < 8; j++) {
-	
-#else
 
-      for (u8 j = 0; j < 4; j++) {
-	
+      if (stage_name[0] == 'c') {
+#ifdef __x86_64__	
+        for (u8 j = 0; j < 8; j++) {
+#else
+        for (u8 j = 0; j < 4; j++) {
 #endif	
-        if (edg[j]) {	
-          if(edg[j] <= 3) x_tons_edge[edg[j] - 1]++;	
-          n_edges++;	
-        }	
-      }	
-    }	
+          if (edg[j]) {	
+            if(edg[j] <= 3) x_tons_edge[edg[j] - 1]++;	
+            n_edges++;	
+          }	
+        }
+      }
+    }
+
     if (unlikely(*path)) {	
       u8* pat = (u8*)path;	
 #ifdef __x86_64__	
