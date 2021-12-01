@@ -3154,6 +3154,8 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
   /* Keep track of singletons and doubletons */
   u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+  if (unlikely(path_bits[cksum % MAP_SIZE]) && path_bits[cksum % MAP_SIZE] < 0xFF)
+    path_bits[cksum % MAP_SIZE] ++;
 
   struct queue_entry* q = queue;
   while (q) {
@@ -3165,11 +3167,6 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   }
 
   if (fault == crash_mode) {
-  
-    /* Keep track of path hit counts for marked paths */
-    u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
-    if ((unlikely(path_bits[cksum % MAP_SIZE]) && path_bits[cksum % MAP_SIZE]) < 0xFF)
-      path_bits[cksum % MAP_SIZE] ++; 
 
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
